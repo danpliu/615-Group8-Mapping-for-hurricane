@@ -1,0 +1,191 @@
+---
+title: "615-map"
+author: "Zhaosheng-Xie"
+date: "2020/10/24"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=TRUE}
+library(usmap)
+library(ggplot2)
+library(tmap)
+library(hurricaneexposuredata)
+library(hurricaneexposure)
+library(tidyverse)
+library(maps)
+library(dplyr)
+library(sp)
+library(sf)
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+In this project, I make following goal maps by using ggplot2 and tmap.
+
+
+### Goal maps
+```{r}
+map_counties(storm = "Floyd-1999", metric = "rainfall") +
+    ggtitle("Floyd-1999") +
+    theme(plot.title = element_text(hjust = 0.5))
+
+map_rain_exposure(storm ="Allison-2001", 
+                  rain_limit = 175, 
+                  dist_limit = 500, 
+                  days_included =-5:3) +
+    ggtitle("Allison-2001") +
+    theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+### Data prepare
+```{r}
+## Obtain map data
+# There are two ways to obtain map data. 
+# The first one is to type each county and state. It is tedious.But I did it and it worked.
+f_county <- map_data(map = "county",
+                     region = c("texas","oklahoma","kansas","louisiana", "arkansas", 
+                       "missouri", "iowa","wisconsin", "michigan","illinois","indiana", 
+                       "ohio", "kentucky", "tennessee", "alabama", "mississippi",
+                       "florida", "georgia", "south carolina", "north carolina", "virginia",
+                       "west virginia", "maryland", "delaware", "pennsylvania", "new jersey", 
+                       "new york", "connecticut", "rhode island", "massachusetts", "vermont",
+                       "new hampshire", "maine"))
+f_state <- map_data(map = "state",
+                    region = c("texas","oklahoma","kansas","louisiana", "arkansas", 
+                       "missouri", "iowa","wisconsin", "michigan","illinois","indiana", 
+                       "ohio", "kentucky", "tennessee", "alabama", "mississippi",
+                       "florida", "georgia", "south carolina", "north carolina", "virginia",
+                       "west virginia", "maryland", "delaware", "pennsylvania", "new jersey", 
+                       "new york", "connecticut", "rhode island", "massachusetts", "vermont",
+                       "new hampshire", "maine"))
+
+# The second one is to use "left_join" to join two data tables.
+data(county.fips)
+M=st_as_sf(map('county',plot=F,fill=T))
+colnames(county.fips)[2]=colnames(M)[1]
+M=left_join(M,county.fips,'ID')
+
+## obtain data of Floyd-1999 and Allison-2001
+Floyd_track=force(hurr_tracks)%>%
+  filter(storm_id=='Floyd-1999')
+Floyd_rain=force(rain)%>%
+  filter(storm_id=='Floyd-1999')%>%
+  group_by(fips)%>%
+  summarise(storm_id=storm_id[1],precip=sum(precip))%>%
+  mutate(fips=as.numeric(fips))
+Floyd_rain=right_join(M,Floyd_rain,'fips')
+
+Allison_track=force(hurr_tracks)%>%
+  filter(storm_id=='Allison-2001')
+Allison_rain=force(rain)%>%
+  filter(storm_id=='Allison-2001')%>%
+  group_by(fips)%>%
+  summarise(storm_id=storm_id[1],precip=sum(precip))%>%
+  mutate(fips=as.numeric(fips))
+Allison_rain=right_join(M,Allison_rain,'fips')
+## select Allison-2001 with limitation storm_dist<500 & rainfall>175
+Allison_dist=force(closest_dist)%>%
+  filter(storm_id=='Allison-2001',storm_dist<500)
+Allison_rain_limit=Allison_rain%>%
+  filter(precip>175,fips%in%Allison_dist$fips)
+## prepare data for tmap
+t_Floyd_track=cbind(Floyd_track$longitude,Floyd_track$latitude)%>%
+  Line()%>%Lines(ID='Floyd-1999')%>%
+  list()%>%SpatialLines()
+t_Allison_track=cbind(Allison_track$longitude,Allison_track$latitude)%>%
+  Line()%>%Lines(ID='Allison-2001')%>%
+  list()%>%SpatialLines()
+```
+
+### Maping
+```{r}
+### ggplot2
+## Floyd-1999
+# use f_county and f_state data to draw
+ggplot() + 
+    ggtitle("Floyd-1999") +
+    geom_polygon( data=f_county, aes(x=long, y=lat, group=group),
+                         color="lightgray", fill="white", size = .1 ) +
+    geom_polygon( data=f_state, aes(x=long, y=lat, group=group),
+                  color="black", fill="lightgray",  size = 1, alpha = .3) +
+    geom_sf(data=Floyd_rain,mapping=aes(fill=precip))+
+    scale_fill_steps(low='white',high='blue',name='Rainfall (mm)')+
+    geom_path( data=Floyd_track, aes(x=longitude, y=latitude),
+                  color="red",alpha = 0.5)+
+  theme(plot.title=element_text(hjust=0.5),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank())
+# use Floyd_rain and Floyd_track data to draw
+ggplot()+
+  geom_sf(data=Floyd_rain,mapping=aes(fill=precip))+
+  scale_fill_steps(low='white',high='red',name='Rainfall (mm)')+
+  geom_path(data=Floyd_track,mapping=aes(x=longitude,y=latitude),color="blue")+
+  ggtitle('Floyd-1999')+
+  theme(plot.title=element_text(hjust=0.5),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank())
+
+## Allison-2001
+# use f_county and f_state data to draw
+ggplot() + 
+    ggtitle("Allison-2001") +
+    geom_polygon( data=f_county, aes(x=long, y=lat, group=group),
+                         color="lightgray", fill="white", size = .1 ) +
+    geom_polygon( data=f_state, aes(x=long, y=lat, group=group),
+                  color="black", fill="lightgray",  size = 1, alpha = .3) +
+    geom_sf(data=Allison_rain,mapping=aes(fill=precip))+
+    scale_fill_steps(low='white',high='blue',name='Rainfall (mm)')+
+    geom_path( data=Allison_track, aes(x=longitude, y=latitude),
+                  color="red",alpha = 0.5)+
+  theme(plot.title=element_text(hjust=0.5),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank())
+# use Allison_rain and Allison_track data to draw
+ggplot()+
+  geom_sf(data=Allison_rain,mapping=aes(fill=precip))+
+  scale_fill_steps(low='white',high='red',name='Rainfall (mm)')+
+  geom_path(data=Allison_track,mapping=aes(x=longitude,y=latitude),color="blue")+
+  ggtitle('Allison-2001')+
+  theme(plot.title=element_text(hjust=0.5),
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank())
+```
+
+
+```{r}
+### tmap
+## Floyd-1999
+Floyd_t=tm_shape(Floyd_rain)+
+  tm_polygons(col='precip',title="Rainfall (mm)")+
+  tm_legend(position=c("right","bottom"))+
+  tm_shape(t_Floyd_track)+
+  tm_lines(col='blue')+
+  tm_layout(main.title=t_Floyd_track@lines[[1]]@ID,
+            main.title.position="center") 
+Floyd_t
+
+## Allison-2001
+Allison_t=tm_shape(Allison_rain)+
+  tm_polygons(col='precip',title="Rainfall (mm)")+
+  tm_legend(position=c("right","bottom"))+
+  tm_shape(t_Allison_track)+
+  tm_lines(col='blue')+
+  tm_layout(main.title=t_Allison_track@lines[[1]]@ID,
+            main.title.position="center") 
+Allison_t
+```
+
